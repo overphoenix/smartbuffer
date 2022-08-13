@@ -1,0 +1,14 @@
+{
+  "artifacts": {},
+  "tasks": {
+    "basePath": [
+      "ateos_tasks"
+    ],
+    "loadPolicy": "ignore",
+    "default": false,
+    "domains": {
+      "public": "public",
+      "private": "private"
+    }
+  }
+}

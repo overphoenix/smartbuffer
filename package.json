@@ -1,0 +1,23 @@
+{
+  "name": "@recalibratedsystems/smartbuffer",
+  "version": "1.0.2",
+  "description": "Smart buffer",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/overphoenix/smartbuffer.git"
+  },
+  "author": "ATEOS team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/overphoenix/smartbuffer/issues"
+  },
+  "homepage": "https://github.com/overphoenix/smartbuffer#readme",
+  "dependencies": {
+    "long": "^5.2.0",
+    "utfx": "^1.0.1"
+  }
+}
