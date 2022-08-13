@@ -1,6 +1,6 @@
 import { Buffer } from "buffer";
 import * as utfx from "utfx";
-import Long from "long";
+import * as Long from "long";
 
 interface SNumber {
   value: number;
@@ -11,7 +11,6 @@ interface SLong {
   value: Long;
   length: number
 }
-
 
 type NumberValue = SNumber | number; 
 type LongValue = SLong | Long;
@@ -583,21 +582,21 @@ export default class SmartBuffer {
     offset += this.writeVarint32(bits, offset);
 
     while (bytes--) {
-      k = (value[bit++] & 1) |
-        ((value[bit++]) & 1 << 1) |
-        ((value[bit++] & 1) << 2) |
-        ((value[bit++] & 1) << 3) |
-        ((value[bit++] & 1) << 4) |
-        ((value[bit++] & 1) << 5) |
-        ((value[bit++] & 1) << 6) |
-        ((value[bit++] & 1) << 7);
+      k = (!!value[bit++] & 1) |
+        ((!!value[bit++] & 1) << 1) |
+        ((!!value[bit++] & 1) << 2) |
+        ((!!value[bit++] & 1) << 3) |
+        ((!!value[bit++] & 1) << 4) |
+        ((!!value[bit++] & 1) << 5) |
+        ((!!value[bit++] & 1) << 6) |
+        ((!!value[bit++] & 1) << 7);
       this.writeInt8(k, offset++);
     }
 
     if (bit < bits) {
       let m = 0; k = 0;
       while (bit < bits) {
-        k = k | ((value[bit++] & 1) << (m++));
+        k = k | ((!!value[bit++] & 1) << (m++));
       }
       this.writeInt8(k, offset++);
     }
