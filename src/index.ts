@@ -1,6 +1,7 @@
 import { Buffer } from "buffer";
+// @ts-ignore
 import * as utfx from "utfx";
-import * as Long from "long";
+import Long from "long";
 
 interface SNumber {
   value: number;
@@ -12,14 +13,14 @@ interface SLong {
   length: number
 }
 
-type NumberValue = SNumber | number; 
+type NumberValue = SNumber | number;
 type LongValue = SLong | Long;
 
 const EMPTY_BUFFER = Buffer.allocUnsafe(0);
 
 const _isString = (value: any): boolean => typeof value === "string" || value instanceof String;
 
-const stringSource = (s) => {
+const stringSource = (s: string) => {
   let i = 0;
   return () => i < s.length ? s.charCodeAt(i++) : null;
 };
@@ -27,7 +28,7 @@ const stringSource = (s) => {
 const stringDestination = () => {
   const cs: number[] = [];
   const ps: string[] = [];
-  return (...args) => {
+  return (...args: any[]) => {
     if (args.length === 0) {
       return `${ps.join("")}${String.fromCharCode(...cs)}`;
     }
@@ -39,8 +40,9 @@ const stringDestination = () => {
   };
 };
 
+export const isSmartBuffer = (obj: any): boolean => obj instanceof SmartBuffer;
 
-export default class SmartBuffer {
+export class SmartBuffer {
 
   static EMPTY_BUFFER = EMPTY_BUFFER;
 
@@ -74,10 +76,10 @@ export default class SmartBuffer {
    */
   static METRICS_BYTES = "b";
 
-  private buffer: Buffer;
-  private woffset: number;
-  private roffset: number;
-  private noAssert: boolean;
+  public buffer: Buffer;
+  public woffset: number = 0;
+  public roffset: number = 0;
+  public noAssert: boolean;
 
   /**
      * Constructs a new SmartBuffer
@@ -85,18 +87,19 @@ export default class SmartBuffer {
      * @param {number} [capacity] Initial capacity. Defaults to SmartBuffer.DEFAULT_CAPACITY(64)
      * @param {boolean} [noAssert] Whether to skip assertions of offsets and values. Defaults to SmartBuffer.DEFAULT_NOASSERT(false)
      */
-  constructor(capacity = SmartBuffer.DEFAULT_CAPACITY, noAssert = SmartBuffer.DEFAULT_NOASSERT) {
+  constructor(capacity?: number, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
+    let lCapacity = capacity === void 0 || Number.isNaN(capacity)
+      ? SmartBuffer.DEFAULT_CAPACITY
+      : capacity;
     if (!noAssert) {
-      capacity = capacity | 0;
-      if (capacity < 0) {
+      lCapacity |= 0;
+      if (lCapacity < 0) {
         throw new TypeError("Illegal capacity");
       }
       noAssert = Boolean(noAssert);
     }
 
-    this.buffer = capacity === 0 ? EMPTY_BUFFER : Buffer.allocUnsafe(capacity);
-    this.woffset = 0;
-    this.roffset = 0;
+    this.buffer = lCapacity === 0 ? EMPTY_BUFFER : Buffer.allocUnsafe(lCapacity);
     this.noAssert = noAssert;
   }
 
@@ -124,23 +127,20 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from. Will use and increase offset by length if omitted.
      * @returns {boolean[]}
      */
-  readBitSet(offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  readBitSet(offset?: number): boolean[] {
+    let loffset = offset ?? this.roffset;
 
-    const ret = this.readVarint32(offset) as SNumber;
+    const ret = this.readVarint32(loffset) as SNumber;
     const bits = ret.value;
     let bytes = (bits >> 3);
     let bit = 0;
     const value: boolean[] = [];
     let k;
 
-    offset += ret.length;
+    loffset += ret.length;
 
     while (bytes--) {
-      k = this.readInt8(offset++);
+      k = this.readInt8(loffset++);
       value[bit++] = Boolean(k & 0x01);
       value[bit++] = Boolean(k & 0x02);
       value[bit++] = Boolean(k & 0x04);
@@ -153,14 +153,14 @@ export default class SmartBuffer {
 
     if (bit < bits) {
       let m = 0;
-      k = this.readInt8(offset++);
+      k = this.readInt8(loffset++);
       while (bit < bits) {
         value[bit++] = Boolean((k >> (m++)) & 1);
       }
     }
 
-    if (relative) {
-      this.roffset = offset;
+    if (offset === void 0) {
+      this.roffset = loffset;
     }
     return value;
   }
@@ -172,22 +172,19 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from. Will use and increase offset by length if omitted.
      * @returns {SmartBuffer}
      */
-  read(length, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  read(length: number, offset?: number) {
+    let loffset = offset ?? this.roffset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + length > this.buffer.length) {
-        throw new TypeError(`Illegal offset: 0 <= ${offset} (${length}) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + length > this.buffer.length) {
+        throw new TypeError(`Illegal offset: 0 <= ${loffset} (${length}) <= ${this.buffer.length}`);
       }
     }
-    const slice = this.slice(offset, offset + length);
-    if (relative) {
+    const slice = this.slice(offset, loffset + length);
+    if (offset === void 0) {
       this.roffset += length;
     }
     return slice;
@@ -199,9 +196,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readInt8(offset) {
-    offset = this._checkRead(offset, 1);
-    let value = this.buffer[offset];
+  readInt8(offset?: number) {
+    const loffset = this._checkRead(1, offset);
+    let value = this.buffer[loffset];
     if ((value & 0x80) === 0x80) {
       value = -(0xFF - value + 1); // Cast to signed
     }
@@ -214,9 +211,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt8(offset) {
-    offset = this._checkRead(offset, 1);
-    return this.buffer[offset];
+  readUInt8(offset?: number) {
+    const loffset = this._checkRead(1, offset);
+    return this.buffer[loffset];
   }
 
   /**
@@ -225,11 +222,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readInt16LE(offset) {
-    offset = this._checkRead(offset, 2);
+  readInt16LE(offset?: number) {
+    const loffset = this._checkRead(2, offset);
     let value = 0;
-    value = this.buffer[offset];
-    value |= this.buffer[offset + 1] << 8;
+    value = this.buffer[loffset];
+    value |= this.buffer[loffset + 1] << 8;
     if ((value & 0x8000) === 0x8000) {
       value = -(0xFFFF - value + 1); // Cast to signed
     }
@@ -242,11 +239,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readInt16BE(offset) {
-    offset = this._checkRead(offset, 2);
+  readInt16BE(offset?: number) {
+    const loffset = this._checkRead(2, offset);
     let value = 0;
-    value = this.buffer[offset] << 8;
-    value |= this.buffer[offset + 1];
+    value = this.buffer[loffset] << 8;
+    value |= this.buffer[loffset + 1];
     if ((value & 0x8000) === 0x8000) {
       value = -(0xFFFF - value + 1); // Cast to signed
     }
@@ -259,11 +256,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt16LE(offset) {
-    offset = this._checkRead(offset, 2);
+  readUInt16LE(offset?: number) {
+    const loffset = this._checkRead(2, offset);
     let value = 0;
-    value = this.buffer[offset];
-    value |= this.buffer[offset + 1] << 8;
+    value = this.buffer[loffset];
+    value |= this.buffer[loffset + 1] << 8;
     return value;
   }
 
@@ -273,11 +270,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt16BE(offset) {
-    offset = this._checkRead(offset, 2);
+  readUInt16BE(offset?: number) {
+    const loffset = this._checkRead(2, offset);
     let value = 0;
-    value = this.buffer[offset] << 8;
-    value |= this.buffer[offset + 1];
+    value = this.buffer[loffset] << 8;
+    value |= this.buffer[loffset + 1];
     return value;
   }
 
@@ -287,12 +284,12 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt24BE(offset) {
-    offset = this._checkRead(offset, 3);
+  readUInt24BE(offset?: number) {
+    const loffset = this._checkRead(3, offset);
     let value = 0;
-    value = this.buffer[offset] << 16;
-    value |= this.buffer[offset + 1] << 8;
-    value |= this.buffer[offset + 2];
+    value = this.buffer[loffset] << 16;
+    value |= this.buffer[loffset + 1] << 8;
+    value |= this.buffer[loffset + 2];
     value |= 0; // Cast to signed
     return value;
   }
@@ -303,13 +300,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readInt32LE(offset) {
-    offset = this._checkRead(offset, 4);
+  readInt32LE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
     let value = 0;
-    value = this.buffer[offset + 2] << 16;
-    value |= this.buffer[offset + 1] << 8;
-    value |= this.buffer[offset];
-    value += this.buffer[offset + 3] << 24 >>> 0;
+    value = this.buffer[loffset + 2] << 16;
+    value |= this.buffer[loffset + 1] << 8;
+    value |= this.buffer[loffset];
+    value += this.buffer[loffset + 3] << 24 >>> 0;
     value |= 0; // Cast to signed
     return value;
   }
@@ -320,13 +317,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readInt32BE(offset) {
-    offset = this._checkRead(offset, 4);
+  readInt32BE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
     let value = 0;
-    value = this.buffer[offset + 1] << 16;
-    value |= this.buffer[offset + 2] << 8;
-    value |= this.buffer[offset + 3];
-    value += this.buffer[offset] << 24 >>> 0;
+    value = this.buffer[loffset + 1] << 16;
+    value |= this.buffer[loffset + 2] << 8;
+    value |= this.buffer[loffset + 3];
+    value += this.buffer[loffset] << 24 >>> 0;
     value |= 0; // Cast to signed
     return value;
   }
@@ -337,13 +334,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt32LE(offset) {
-    offset = this._checkRead(offset, 4);
+  readUInt32LE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
     let value = 0;
-    value = this.buffer[offset + 2] << 16;
-    value |= this.buffer[offset + 1] << 8;
-    value |= this.buffer[offset];
-    value += this.buffer[offset + 3] << 24 >>> 0;
+    value = this.buffer[loffset + 2] << 16;
+    value |= this.buffer[loffset + 1] << 8;
+    value |= this.buffer[loffset];
+    value += this.buffer[loffset + 3] << 24 >>> 0;
     return value;
   }
 
@@ -353,13 +350,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readUInt32BE(offset) {
-    offset = this._checkRead(offset, 4);
+  readUInt32BE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
     let value = 0;
-    value = this.buffer[offset + 1] << 16;
-    value |= this.buffer[offset + 2] << 8;
-    value |= this.buffer[offset + 3];
-    value += this.buffer[offset] << 24 >>> 0;
+    value = this.buffer[loffset + 1] << 16;
+    value |= this.buffer[loffset + 2] << 8;
+    value |= this.buffer[loffset + 3];
+    value += this.buffer[loffset] << 24 >>> 0;
     return value;
   }
 
@@ -369,19 +366,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {ateos.math.Long}
      */
-  readInt64LE(offset) {
-    offset = this._checkRead(offset, 8);
+  readInt64LE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
     let lo = 0;
     let hi = 0;
-    lo = this.buffer[offset + 2] << 16;
-    lo |= this.buffer[offset + 1] << 8;
-    lo |= this.buffer[offset];
-    lo += this.buffer[offset + 3] << 24 >>> 0;
-    offset += 4;
-    hi = this.buffer[offset + 2] << 16;
-    hi |= this.buffer[offset + 1] << 8;
-    hi |= this.buffer[offset];
-    hi += this.buffer[offset + 3] << 24 >>> 0;
+    lo = this.buffer[loffset + 2] << 16;
+    lo |= this.buffer[loffset + 1] << 8;
+    lo |= this.buffer[loffset];
+    lo += this.buffer[loffset + 3] << 24 >>> 0;
+    hi = this.buffer[loffset + 6] << 16;
+    hi |= this.buffer[loffset + 5] << 8;
+    hi |= this.buffer[loffset + 4];
+    hi += this.buffer[loffset + 7] << 24 >>> 0;
     return new Long(lo, hi, false);
   }
 
@@ -391,19 +387,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {ateos.math.Long}
      */
-  readInt64BE(offset) {
-    offset = this._checkRead(offset, 8);
+  readInt64BE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
     let lo = 0;
     let hi = 0;
-    hi = this.buffer[offset + 1] << 16;
-    hi |= this.buffer[offset + 2] << 8;
-    hi |= this.buffer[offset + 3];
-    hi += this.buffer[offset] << 24 >>> 0;
-    offset += 4;
-    lo = this.buffer[offset + 1] << 16;
-    lo |= this.buffer[offset + 2] << 8;
-    lo |= this.buffer[offset + 3];
-    lo += this.buffer[offset] << 24 >>> 0;
+    hi = this.buffer[loffset + 1] << 16;
+    hi |= this.buffer[loffset + 2] << 8;
+    hi |= this.buffer[loffset + 3];
+    hi += this.buffer[loffset] << 24 >>> 0;
+    lo = this.buffer[loffset + 5] << 16;
+    lo |= this.buffer[loffset + 6] << 8;
+    lo |= this.buffer[loffset + 7];
+    lo += this.buffer[loffset + 4] << 24 >>> 0;
     return new Long(lo, hi, false);
   }
 
@@ -413,19 +408,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {ateos.math.Long}
      */
-  readUInt64LE(offset) {
-    offset = this._checkRead(offset, 8);
+  readUInt64LE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
     let lo = 0;
     let hi = 0;
-    lo = this.buffer[offset + 2] << 16;
-    lo |= this.buffer[offset + 1] << 8;
-    lo |= this.buffer[offset];
-    lo += this.buffer[offset + 3] << 24 >>> 0;
-    offset += 4;
-    hi = this.buffer[offset + 2] << 16;
-    hi |= this.buffer[offset + 1] << 8;
-    hi |= this.buffer[offset];
-    hi += this.buffer[offset + 3] << 24 >>> 0;
+    lo = this.buffer[loffset + 2] << 16;
+    lo |= this.buffer[loffset + 1] << 8;
+    lo |= this.buffer[loffset];
+    lo += this.buffer[loffset + 3] << 24 >>> 0;
+    hi = this.buffer[loffset + 6] << 16;
+    hi |= this.buffer[loffset + 5] << 8;
+    hi |= this.buffer[loffset + 4];
+    hi += this.buffer[loffset + 7] << 24 >>> 0;
     return new Long(lo, hi, true);
   }
 
@@ -435,19 +429,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {ateos.math.Long}
      */
-  readUInt64BE(offset) {
-    offset = this._checkRead(offset, 8);
+  readUInt64BE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
     let lo = 0;
     let hi = 0;
-    hi = this.buffer[offset + 1] << 16;
-    hi |= this.buffer[offset + 2] << 8;
-    hi |= this.buffer[offset + 3];
-    hi += this.buffer[offset] << 24 >>> 0;
-    offset += 4;
-    lo = this.buffer[offset + 1] << 16;
-    lo |= this.buffer[offset + 2] << 8;
-    lo |= this.buffer[offset + 3];
-    lo += this.buffer[offset] << 24 >>> 0;
+    hi = this.buffer[loffset + 1] << 16;
+    hi |= this.buffer[loffset + 2] << 8;
+    hi |= this.buffer[loffset + 3];
+    hi += this.buffer[loffset] << 24 >>> 0;
+    lo = this.buffer[loffset + 5] << 16;
+    lo |= this.buffer[loffset + 6] << 8;
+    lo |= this.buffer[loffset + 7];
+    lo += this.buffer[loffset + 4] << 24 >>> 0;
     return new Long(lo, hi, true);
   }
 
@@ -457,9 +450,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readFloatLE(offset) {
-    offset = this._checkRead(offset, 4);
-    return this.buffer.readFloatLE(offset, true);
+  readFloatLE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
+    return this.buffer.readFloatLE(loffset);
   }
 
   /**
@@ -468,9 +461,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readFloatBE(offset) {
-    offset = this._checkRead(offset, 4);
-    return this.buffer.readFloatBE(offset, true);
+  readFloatBE(offset?: number) {
+    const loffset = this._checkRead(4, offset);
+    return this.buffer.readFloatBE(loffset);
   }
 
   /**
@@ -479,9 +472,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readDoubleLE(offset) {
-    offset = this._checkRead(offset, 8);
-    return this.buffer.readDoubleLE(offset, true);
+  readDoubleLE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
+    return this.buffer.readDoubleLE(loffset);
   }
 
   /**
@@ -490,9 +483,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {number}
      */
-  readDoubleBE(offset) {
-    offset = this._checkRead(offset, 8);
-    return this.buffer.readDoubleBE(offset, true);
+  readDoubleBE(offset?: number) {
+    const loffset = this._checkRead(8, offset);
+    return this.buffer.readDoubleBE(loffset);
   }
 
   /**
@@ -504,47 +497,46 @@ export default class SmartBuffer {
      * @param {number} [length] length to read from the source
      * @param {string} [encoding] encoding to use for wrapping the source in bytearray
      */
-  write(source, offset, length, encoding) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
-    const result = offset >>>= 0;
+  write(source: any, offset?: number, length?: number, encoding: string = "utf8") {
+    let loffset = offset === void 0
+      ? this.woffset
+      : offset;
+    const result = loffset >>> 0;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
-    // let length;
+    let llength;
     const isString = _isString(source);
     if (isString) {
-      length = length || Buffer.byteLength(source);
+      llength = length || Buffer.byteLength(source);
     } else {
       if (!(source instanceof SmartBuffer)) {
         source = SmartBuffer.wrap(source, encoding);
       }
-      length = source.woffset - source.roffset;
+      llength = source.woffset - source.roffset;
     }
 
-    if (length <= 0) {
+    if (llength <= 0) {
       return this; // Nothing to append
     }
-    offset += length;
+    loffset += llength;
     let capacity = this.buffer.length;
-    if (offset > capacity) {
-      this.resize((capacity *= 2) > offset ? capacity : offset);
+    if (loffset > capacity) {
+      this.resize((capacity *= 2) > loffset ? capacity : loffset);
     }
     if (isString) {
       this.buffer.write(source, result);
     } else {
       source.buffer.copy(this.buffer, result, source.roffset, source.woffset);
-      source.roffset += length;
+      source.roffset += llength;
     }
-    if (relative) {
-      this.woffset += length;
+    if (offset === void 0) {
+      this.woffset += llength;
     }
     return this;
   }
@@ -555,57 +547,50 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {SmartBuffer}
      */
-  writeBitSet(value: Array<any>, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeBitSet(value: any[], offset?: number) {
+    let loffset = offset ?? this.woffset;
     if (!this.noAssert) {
       if (!Array.isArray(value)) {
         throw new TypeError("Illegal BitSet: Not an array");
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset}  (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
 
-    const start = offset;
+    const start = loffset;
     const bits = value.length;
-    let bytes = (bits >> 3);
+    let bytes = bits >> 3;
     let bit = 0;
     let k;
 
-    offset += this.writeVarint32(bits, offset);
+    loffset += this.writeVarint32(bits, loffset) as number;
 
     while (bytes--) {
-      k = (!!value[bit++] & 1) |
-        ((!!value[bit++] & 1) << 1) |
-        ((!!value[bit++] & 1) << 2) |
-        ((!!value[bit++] & 1) << 3) |
-        ((!!value[bit++] & 1) << 4) |
-        ((!!value[bit++] & 1) << 5) |
-        ((!!value[bit++] & 1) << 6) |
-        ((!!value[bit++] & 1) << 7);
-      this.writeInt8(k, offset++);
+      // @ts-ignore
+      k = (!!value[bit++] & 1) | ((!!value[bit++] & 1) << 1) | ((!!value[bit++] & 1) << 2) | ((!!value[bit++] & 1) << 3) | ((!!value[bit++] & 1) << 4) | ((!!value[bit++] & 1) << 5) | ((!!value[bit++] & 1) << 6) | ((!!value[bit++] & 1) << 7);
+      this.writeInt8(k, loffset++);
     }
 
     if (bit < bits) {
-      let m = 0; k = 0;
+      let m = 0;
+      let k = 0;
       while (bit < bits) {
+        // @ts-ignore
         k = k | ((!!value[bit++] & 1) << (m++));
       }
-      this.writeInt8(k, offset++);
+      this.writeInt8(k, loffset++);
     }
 
-    if (relative) {
-      this.woffset = offset;
+    if (offset === void 0) {
+      this.woffset = loffset;
       return this;
     }
-    return offset - start;
+    return loffset - start;
   }
 
   /**
@@ -615,21 +600,21 @@ export default class SmartBuffer {
      * @param {number} [offset] offset to write at
      * @returns {this}
      */
-  writeBuffer(buf, offset) {
+  writeBuffer(buf: Buffer, offset?: number) {
     if (buf.length === 0) {
       return this;
     }
     const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
-    const targetEnd = offset + buf.length;
+    let loffset: number = relative
+      ? this.woffset
+      : offset;
+    const targetEnd = loffset + buf.length;
     let capacity = this.buffer.length;
     if (targetEnd > capacity) {
       capacity *= 2;
       this.resize(capacity > targetEnd ? capacity : targetEnd);
     }
-    buf.copy(this.buffer, offset);
+    buf.copy(this.buffer, loffset);
     if (relative) {
       this.woffset = targetEnd;
     }
@@ -643,10 +628,10 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt8(value, offset) {
-    value |= 0;
-    offset = this._checkWrite(value, offset, 1);
-    this.buffer[offset] = value;
+  writeInt8(value: number, offset?: number) {
+    const iValue = value | 0;
+    const loffset = this._checkWrite(iValue, 1, offset);
+    this.buffer[loffset] = iValue;
     return this;
   }
 
@@ -657,10 +642,10 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt8(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 1);
-    this.buffer[offset] = value;
+  writeUInt8(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    const loffset = this._checkWrite(uValue, 1, offset);
+    this.buffer[loffset] = uValue;
     return this;
   }
 
@@ -671,11 +656,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt16LE(value, offset) {
-    value |= 0;
-    offset = this._checkWrite(value, offset, 2);
-    this.buffer[offset + 1] = value >>> 8;
-    this.buffer[offset] = value;
+  writeInt16LE(value: number, offset?: number) {
+    const iValue = value | 0;
+    const loffset = this._checkWrite(iValue, 2, offset);
+    this.buffer[loffset + 1] = iValue >>> 8;
+    this.buffer[loffset] = iValue;
     return this;
   }
 
@@ -686,11 +671,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt16BE(value, offset) {
-    value |= 0;
-    offset = this._checkWrite(value, offset, 2);
-    this.buffer[offset] = value >>> 8;
-    this.buffer[offset + 1] = value;
+  writeInt16BE(value: number, offset?: number) {
+    const iValue = value | 0;
+    const loffset = this._checkWrite(iValue, 2, offset);
+    this.buffer[loffset] = iValue >>> 8;
+    this.buffer[loffset + 1] = iValue;
     return this;
   }
 
@@ -701,11 +686,11 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt16LE(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 2);
-    this.buffer[offset + 1] = value >>> 8;
-    this.buffer[offset] = value;
+  writeUInt16LE(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    const loffset = this._checkWrite(uValue, 2, offset);
+    this.buffer[loffset + 1] = uValue >>> 8;
+    this.buffer[loffset] = uValue;
     return this;
   }
 
@@ -716,12 +701,12 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt16BE(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 2);
+  writeUInt16BE(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    const loffset = this._checkWrite(uValue, 2, offset);
 
-    this.buffer[offset] = value >>> 8;
-    this.buffer[offset + 1] = value;
+    this.buffer[loffset] = uValue >>> 8;
+    this.buffer[loffset + 1] = uValue;
     return this;
   }
 
@@ -732,12 +717,12 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt24BE(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 3);
-    this.buffer[offset] = value >>> 16;
-    this.buffer[offset + 1] = value >>> 8;
-    this.buffer[offset + 2] = value;
+  writeUInt24BE(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    const loffset = this._checkWrite(uValue, 3, offset);
+    this.buffer[loffset] = uValue >>> 16;
+    this.buffer[loffset + 1] = uValue >>> 8;
+    this.buffer[loffset + 2] = uValue;
     return this;
   }
 
@@ -748,13 +733,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt32LE(value, offset) {
-    value |= 0;
-    offset = this._checkWrite(value, offset, 4);
-    this.buffer[offset + 3] = value >>> 24;
-    this.buffer[offset + 2] = value >>> 16;
-    this.buffer[offset + 1] = value >>> 8;
-    this.buffer[offset] = value;
+  writeInt32LE(value: number, offset?: number) {
+    const iValue = value | 0;
+    const loffset = this._checkWrite(iValue, 4, offset);
+    this.buffer[loffset + 3] = iValue >>> 24;
+    this.buffer[loffset + 2] = iValue >>> 16;
+    this.buffer[loffset + 1] = iValue >>> 8;
+    this.buffer[loffset] = iValue;
     return this;
   }
 
@@ -765,13 +750,14 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt32BE(value, offset) {
-    value |= 0;
-    offset = this._checkWrite(value, offset, 4);
-    this.buffer[offset] = value >>> 24;
-    this.buffer[offset + 1] = value >>> 16;
-    this.buffer[offset + 2] = value >>> 8;
-    this.buffer[offset + 3] = value;
+  writeInt32BE(value: number, offset?: number) {
+    const iValue = value | 0;
+    const loffset = this._checkWrite(iValue, 4, offset);
+    console.log(loffset);
+    this.buffer[loffset] = iValue >>> 24;
+    this.buffer[loffset + 1] = iValue >>> 16;
+    this.buffer[loffset + 2] = iValue >>> 8;
+    this.buffer[loffset + 3] = iValue;
     return this;
   }
 
@@ -782,13 +768,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt32LE(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 4);
-    this.buffer[offset + 3] = value >>> 24;
-    this.buffer[offset + 2] = value >>> 16;
-    this.buffer[offset + 1] = value >>> 8;
-    this.buffer[offset] = value;
+  writeUInt32LE(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    offset = this._checkWrite(uValue, 4, offset);
+    this.buffer[offset + 3] = uValue >>> 24;
+    this.buffer[offset + 2] = uValue >>> 16;
+    this.buffer[offset + 1] = uValue >>> 8;
+    this.buffer[offset] = uValue;
     return this;
   }
 
@@ -799,13 +785,13 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt32BE(value, offset) {
-    value >>>= 0;
-    offset = this._checkWrite(value, offset, 4);
-    this.buffer[offset] = value >>> 24;
-    this.buffer[offset + 1] = value >>> 16;
-    this.buffer[offset + 2] = value >>> 8;
-    this.buffer[offset + 3] = value;
+  writeUInt32BE(value: number, offset?: number) {
+    const uValue = value >>> 0;
+    offset = this._checkWrite(uValue, 4, offset);
+    this.buffer[offset] = uValue >>> 24;
+    this.buffer[offset + 1] = uValue >>> 16;
+    this.buffer[offset + 2] = uValue >>> 8;
+    this.buffer[offset + 3] = uValue;
     return this;
   }
 
@@ -816,19 +802,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt64LE(value, offset) {
-    [value, offset] = this._checkWriteLong(value, offset);
-    const lo = value.low;
-    const hi = value.high;
-    this.buffer[offset + 3] = lo >>> 24;
-    this.buffer[offset + 2] = lo >>> 16;
-    this.buffer[offset + 1] = lo >>> 8;
-    this.buffer[offset] = lo;
-    offset += 4;
-    this.buffer[offset + 3] = hi >>> 24;
-    this.buffer[offset + 2] = hi >>> 16;
-    this.buffer[offset + 1] = hi >>> 8;
-    this.buffer[offset] = hi;
+  writeInt64LE(value: Long, offset?: number) {
+    const [lvalue, loffset] = this._checkWriteLong(value, offset);
+    const lo = lvalue.low;
+    const hi = lvalue.high;
+    this.buffer[loffset + 3] = lo >>> 24;
+    this.buffer[loffset + 2] = lo >>> 16;
+    this.buffer[loffset + 1] = lo >>> 8;
+    this.buffer[loffset] = lo;
+    this.buffer[loffset + 7] = hi >>> 24;
+    this.buffer[loffset + 6] = hi >>> 16;
+    this.buffer[loffset + 5] = hi >>> 8;
+    this.buffer[loffset + 4] = hi;
     return this;
   }
 
@@ -839,19 +824,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeInt64BE(value, offset) {
-    [value, offset] = this._checkWriteLong(value, offset);
-    const lo = value.low;
-    const hi = value.high;
-    this.buffer[offset] = hi >>> 24;
-    this.buffer[offset + 1] = hi >>> 16;
-    this.buffer[offset + 2] = hi >>> 8;
-    this.buffer[offset + 3] = hi;
-    offset += 4;
-    this.buffer[offset] = lo >>> 24;
-    this.buffer[offset + 1] = lo >>> 16;
-    this.buffer[offset + 2] = lo >>> 8;
-    this.buffer[offset + 3] = lo;
+  writeInt64BE(value: Long, offset?: number) {
+    const [lvalue, loffset] = this._checkWriteLong(value, offset);
+    const lo = lvalue.low;
+    const hi = lvalue.high;
+    this.buffer[loffset] = hi >>> 24;
+    this.buffer[loffset + 1] = hi >>> 16;
+    this.buffer[loffset + 2] = hi >>> 8;
+    this.buffer[loffset + 3] = hi;
+    this.buffer[loffset + 4] = lo >>> 24;
+    this.buffer[loffset + 5] = lo >>> 16;
+    this.buffer[loffset + 6] = lo >>> 8;
+    this.buffer[loffset + 7] = lo;
     return this;
   }
 
@@ -862,19 +846,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt64LE(value, offset) {
-    [value, offset] = this._checkWriteLong(value, offset);
-    const lo = value.low;
-    const hi = value.high;
-    this.buffer[offset + 3] = lo >>> 24;
-    this.buffer[offset + 2] = lo >>> 16;
-    this.buffer[offset + 1] = lo >>> 8;
-    this.buffer[offset] = lo;
-    offset += 4;
-    this.buffer[offset + 3] = hi >>> 24;
-    this.buffer[offset + 2] = hi >>> 16;
-    this.buffer[offset + 1] = hi >>> 8;
-    this.buffer[offset] = hi;
+  writeUInt64LE(value: Long, offset?: number) {
+    const [lvalue, loffset] = this._checkWriteLong(value, offset);
+    const lo = lvalue.low;
+    const hi = lvalue.high;
+    this.buffer[loffset + 3] = lo >>> 24;
+    this.buffer[loffset + 2] = lo >>> 16;
+    this.buffer[loffset + 1] = lo >>> 8;
+    this.buffer[loffset] = lo;
+    this.buffer[loffset + 7] = hi >>> 24;
+    this.buffer[loffset + 6] = hi >>> 16;
+    this.buffer[loffset + 5] = hi >>> 8;
+    this.buffer[loffset + 4] = hi;
     return this;
   }
 
@@ -885,19 +868,18 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeUInt64BE(value, offset) {
-    [value, offset] = this._checkWriteLong(value, offset);
-    const lo = value.low;
-    const hi = value.high;
-    this.buffer[offset] = hi >>> 24;
-    this.buffer[offset + 1] = hi >>> 16;
-    this.buffer[offset + 2] = hi >>> 8;
-    this.buffer[offset + 3] = hi;
-    offset += 4;
-    this.buffer[offset] = lo >>> 24;
-    this.buffer[offset + 1] = lo >>> 16;
-    this.buffer[offset + 2] = lo >>> 8;
-    this.buffer[offset + 3] = lo;
+  writeUInt64BE(value: Long, offset?: number) {
+    const [lvalue, loffset] = this._checkWriteLong(value, offset);
+    const lo = lvalue.low;
+    const hi = lvalue.high;
+    this.buffer[loffset] = hi >>> 24;
+    this.buffer[loffset + 1] = hi >>> 16;
+    this.buffer[loffset + 2] = hi >>> 8;
+    this.buffer[loffset + 3] = hi;
+    this.buffer[loffset + 4] = lo >>> 24;
+    this.buffer[loffset + 5] = lo >>> 16;
+    this.buffer[loffset + 6] = lo >>> 8;
+    this.buffer[loffset + 7] = lo;
     return this;
   }
 
@@ -908,9 +890,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeFloatLE(value, offset) {
-    offset = this._checkWrite(value, offset, 4, true);
-    this.buffer.writeFloatLE(value, offset, true);
+  writeFloatLE(value: number, offset?: number) {
+    const loffset = this._checkWrite(value, 4, offset, true);
+    this.buffer.writeFloatLE(value, loffset);
     return this;
   }
 
@@ -921,9 +903,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeFloatBE(value, offset) {
-    offset = this._checkWrite(value, offset, 4, true);
-    this.buffer.writeFloatBE(value, offset, true);
+  writeFloatBE(value: number, offset?: number) {
+    const loffset = this._checkWrite(value, 4, offset, true);
+    this.buffer.writeFloatBE(value, loffset);
     return this;
   }
 
@@ -934,9 +916,9 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeDoubleLE(value, offset) {
-    offset = this._checkWrite(value, offset, 8, true);
-    this.buffer.writeDoubleLE(value, offset, true);
+  writeDoubleLE(value: number, offset?: number) {
+    const loffset = this._checkWrite(value, 8, offset, true);
+    this.buffer.writeDoubleLE(value, loffset);
     return this;
   }
 
@@ -947,59 +929,59 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this}
      */
-  writeDoubleBE(value, offset) {
-    offset = this._checkWrite(value, offset, 8, true);
-    this.buffer.writeDoubleBE(value, offset, true);
+  writeDoubleBE(value: number, offset?: number) {
+    const loffset = this._checkWrite(value, 8, offset, true);
+    this.buffer.writeDoubleBE(value, loffset);
     return this;
   }
 
-  _checkRead(offset, bytes) {
+  _checkRead(bytes: number, offset?: number) {
+    const loffset = offset ?? this.roffset;
     if (offset === void 0) {
-      offset = this.roffset;
       this.roffset += bytes;
     }
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      if (offset < 0 || offset + bytes > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (${bytes}) <= ${this.buffer.length}`);
+      if (loffset < 0 || loffset + bytes > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (${bytes}) <= ${this.buffer.length}`);
       }
     }
-    return offset;
+    return loffset;
   }
 
-  _checkWrite(value: any, offset: number, bytes: number, isFloat?: boolean) {
+  _checkWrite(value: any, bytes: number, offset?: number, isFloat: boolean = false) {
+    let loffset: number = (offset ?? this.woffset) >>> 0;
     if (offset === void 0) {
-      offset = this.woffset;
       this.woffset += bytes;
     }
-    const result = offset >>>= 0;
+    const result = loffset >>>= 0;
     if (!this.noAssert) {
       if (typeof value !== "number" || (!isFloat && value % 1 !== 0)) {
         throw new TypeError(`Illegal value: ${value} (not an integer)`);
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
         throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
       }
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
-    offset += bytes;
+    loffset += bytes;
     let capacity = this.buffer.length;
-    if (offset > capacity) {
-      this.resize((capacity *= 2) > offset ? capacity : offset);
+    if (loffset > capacity) {
+      this.resize((capacity *= 2) > loffset ? capacity : loffset);
     }
     return result;
   }
 
-  _checkWriteLong(value, offset) {
+  _checkWriteLong(value: any, offset?: number) {
+    let loffset = offset ?? this.woffset;
     if (offset === void 0) {
-      offset = this.woffset;
       this.woffset += 8;
     }
-    const result = offset >>>= 0;
+    const result = loffset >>>= 0;
     if (!this.noAssert) {
       if (typeof value === "number") {
         value = Long.fromNumber(value);
@@ -1008,11 +990,11 @@ export default class SmartBuffer {
       } else if (!(typeof value === "object" && value instanceof Long)) {
         throw new TypeError(`Illegal value: ${value} (not an integer or Long)`);
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     if (typeof value === "number") {
@@ -1021,10 +1003,10 @@ export default class SmartBuffer {
       value = Long.fromString(value);
     }
 
-    offset += 8;
+    loffset += 8;
     let capacity = this.buffer.length;
-    if (offset > capacity) {
-      this.resize((capacity *= 2) > offset ? capacity : offset);
+    if (loffset > capacity) {
+      this.resize((capacity *= 2) > loffset ? capacity : loffset);
     }
     return [value, result];
   }
@@ -1036,41 +1018,38 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeVarint32(value, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeVarint32(value: any, offset?: number) {
+    let loffset = offset ?? this.woffset;
     if (!this.noAssert) {
       if (typeof value !== "number" || value % 1 !== 0) {
         throw new TypeError(`Illegal value: ${value} (not an integer)`);
       }
       value |= 0;
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     const size = SmartBuffer.calculateVarint32(value);
     let b;
-    offset += size;
+    loffset += size;
     let capacity10 = this.buffer.length;
-    if (offset > capacity10) {
-      this.resize((capacity10 *= 2) > offset ? capacity10 : offset);
+    if (loffset > capacity10) {
+      this.resize((capacity10 *= 2) > loffset ? capacity10 : loffset);
     }
-    offset -= size;
+    loffset -= size;
     value >>>= 0;
     while (value >= 0x80) {
       b = (value & 0x7f) | 0x80;
-      this.buffer[offset++] = b;
+      this.buffer[loffset++] = b;
       value >>>= 7;
     }
-    this.buffer[offset++] = value;
-    if (relative) {
-      this.woffset = offset;
+    this.buffer[loffset++] = value;
+    if (offset === void 0) {
+      this.woffset = loffset;
       return this;
     }
     return size;
@@ -1083,7 +1062,7 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeVarint32ZigZag(value, offset) {
+  writeVarint32ZigZag(value: any, offset?: number) {
     return this.writeVarint32(SmartBuffer.zigZagEncode32(value), offset);
   }
 
@@ -1094,38 +1073,38 @@ export default class SmartBuffer {
      * @returns {number | { value: number, length: number}} The value read if offset is omitted,
      *      else the value read and the actual number of bytes read
      */
-  readVarint32(offset): NumberValue {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  readVarint32(offset?: number): NumberValue {
+    let loffset = offset ?? this.roffset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 1 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (1) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 1 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (1) <= ${this.buffer.length}`);
       }
     }
     let c = 0;
     let value = 0 >>> 0;
     let b;
     do {
-      if (!this.noAssert && offset > this.buffer.length) {
+      if (!this.noAssert && loffset > this.buffer.length) {
         const err = new Error("Truncated");
-        err["truncated"] = true;
+        Object.defineProperty(err, "truncated", {
+          enumerable: true,
+          value: true
+        });
         throw err;
       }
-      b = this.buffer[offset++];
+      b = this.buffer[loffset++];
       if (c < 5) {
         value |= (b & 0x7f) << (7 * c);
       }
       ++c;
     } while ((b & 0x80) !== 0);
     value |= 0;
-    if (relative) {
-      this.roffset = offset;
+    if (offset === void 0) {
+      this.roffset = loffset;
       return value;
     }
     return { value, length: c };
@@ -1138,7 +1117,7 @@ export default class SmartBuffer {
      * @returns {number | { value: number, length: number}} The value read if offset is omitted,
      *      else the value read and the actual number of bytes read
      */
-  readVarint32ZigZag(offset) {
+  readVarint32ZigZag(offset?: number) {
     let val = this.readVarint32(offset);
     if (typeof val === "object") {
       val.value = SmartBuffer.zigZagDecode32(val.value);
@@ -1155,11 +1134,10 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeVarint64(value, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeVarint64(value: any, offset?: number) {
+    let loffset: number = offset === void 0
+      ? this.woffset
+      : offset;
     if (!this.noAssert) {
       if (typeof value === "number") {
         value = Long.fromNumber(value);
@@ -1168,12 +1146,12 @@ export default class SmartBuffer {
       } else if (!(typeof value === "object" && value instanceof Long)) {
         throw new TypeError(`Illegal value: ${value} (not an integer or Long)`);
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     if (typeof value === "number") {
@@ -1187,44 +1165,44 @@ export default class SmartBuffer {
     const part0 = value.toInt() >>> 0;
     const part1 = value.shru(28).toInt() >>> 0;
     const part2 = value.shru(56).toInt() >>> 0;
-    offset += size;
+    loffset += size;
     let capacity11 = this.buffer.length;
-    if (offset > capacity11) {
-      this.resize((capacity11 *= 2) > offset ? capacity11 : offset);
+    if (loffset > capacity11) {
+      this.resize((capacity11 *= 2) > loffset ? capacity11 : loffset);
     }
-    offset -= size;
+    loffset -= size;
     switch (size) {
       case 10:
-        this.buffer[offset + 9] = (part2 >>> 7) & 0x01;
+        this.buffer[loffset + 9] = (part2 >>> 7) & 0x01;
       // falls through
       case 9:
-        this.buffer[offset + 8] = size !== 9 ? (part2) | 0x80 : (part2) & 0x7F;
+        this.buffer[loffset + 8] = size !== 9 ? (part2) | 0x80 : (part2) & 0x7F;
       // falls through
       case 8:
-        this.buffer[offset + 7] = size !== 8 ? (part1 >>> 21) | 0x80 : (part1 >>> 21) & 0x7F;
+        this.buffer[loffset + 7] = size !== 8 ? (part1 >>> 21) | 0x80 : (part1 >>> 21) & 0x7F;
       // falls through
       case 7:
-        this.buffer[offset + 6] = size !== 7 ? (part1 >>> 14) | 0x80 : (part1 >>> 14) & 0x7F;
+        this.buffer[loffset + 6] = size !== 7 ? (part1 >>> 14) | 0x80 : (part1 >>> 14) & 0x7F;
       // falls through
       case 6:
-        this.buffer[offset + 5] = size !== 6 ? (part1 >>> 7) | 0x80 : (part1 >>> 7) & 0x7F;
+        this.buffer[loffset + 5] = size !== 6 ? (part1 >>> 7) | 0x80 : (part1 >>> 7) & 0x7F;
       // falls through
       case 5:
-        this.buffer[offset + 4] = size !== 5 ? (part1) | 0x80 : (part1) & 0x7F;
+        this.buffer[loffset + 4] = size !== 5 ? (part1) | 0x80 : (part1) & 0x7F;
       // falls through
       case 4:
-        this.buffer[offset + 3] = size !== 4 ? (part0 >>> 21) | 0x80 : (part0 >>> 21) & 0x7F;
+        this.buffer[loffset + 3] = size !== 4 ? (part0 >>> 21) | 0x80 : (part0 >>> 21) & 0x7F;
       // falls through
       case 3:
-        this.buffer[offset + 2] = size !== 3 ? (part0 >>> 14) | 0x80 : (part0 >>> 14) & 0x7F;
+        this.buffer[loffset + 2] = size !== 3 ? (part0 >>> 14) | 0x80 : (part0 >>> 14) & 0x7F;
       // falls through
       case 2:
-        this.buffer[offset + 1] = size !== 2 ? (part0 >>> 7) | 0x80 : (part0 >>> 7) & 0x7F;
+        this.buffer[loffset + 1] = size !== 2 ? (part0 >>> 7) | 0x80 : (part0 >>> 7) & 0x7F;
       // falls through
       case 1:
-        this.buffer[offset] = size !== 1 ? (part0) | 0x80 : (part0) & 0x7F;
+        this.buffer[loffset] = size !== 1 ? (part0) | 0x80 : (part0) & 0x7F;
     }
-    if (relative) {
+    if (offset === void 0) {
       this.woffset += size;
       return this;
     }
@@ -1239,7 +1217,7 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeVarint64ZigZag(value, offset) {
+  writeVarint64ZigZag(value: any, offset: number) {
     return this.writeVarint64(SmartBuffer.zigZagEncode64(value), offset);
   }
 
@@ -1250,54 +1228,53 @@ export default class SmartBuffer {
      * @returns {number | { value: ateos.math.Long, c: number }} The value read if offset is omitted,
      *      else the value read and the actual number of bytes read
      */
-  readVarint64(offset): LongValue {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  readVarint64(offset?: number): LongValue {
+    let loffset = offset === void 0
+      ? this.roffset
+      : offset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 1 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (1) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 1 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (1) <= ${this.buffer.length}`);
       }
     }
     // ref: src/google/protobuf/io/coded_stream.cc
-    const start = offset;
+    const start = loffset;
     let part0 = 0;
     let part1 = 0;
     let part2 = 0;
     let b = 0;
-    b = this.buffer[offset++];
+    b = this.buffer[loffset++];
     part0 = (b & 0x7F);
     if (b & 0x80) {
-      b = this.buffer[offset++];
+      b = this.buffer[loffset++];
       part0 |= (b & 0x7F) << 7;
       if ((b & 0x80) || (this.noAssert && b === void 0)) {
-        b = this.buffer[offset++];
+        b = this.buffer[loffset++];
         part0 |= (b & 0x7F) << 14;
         if ((b & 0x80) || (this.noAssert && b === void 0)) {
-          b = this.buffer[offset++];
+          b = this.buffer[loffset++];
           part0 |= (b & 0x7F) << 21;
           if ((b & 0x80) || (this.noAssert && b === void 0)) {
-            b = this.buffer[offset++];
+            b = this.buffer[loffset++];
             part1 = (b & 0x7F);
             if ((b & 0x80) || (this.noAssert && b === void 0)) {
-              b = this.buffer[offset++];
+              b = this.buffer[loffset++];
               part1 |= (b & 0x7F) << 7;
               if ((b & 0x80) || (this.noAssert && b === void 0)) {
-                b = this.buffer[offset++];
+                b = this.buffer[loffset++];
                 part1 |= (b & 0x7F) << 14;
                 if ((b & 0x80) || (this.noAssert && b === void 0)) {
-                  b = this.buffer[offset++];
+                  b = this.buffer[loffset++];
                   part1 |= (b & 0x7F) << 21;
                   if ((b & 0x80) || (this.noAssert && b === void 0)) {
-                    b = this.buffer[offset++];
+                    b = this.buffer[loffset++];
                     part2 = (b & 0x7F);
                     if ((b & 0x80) || (this.noAssert && b === void 0)) {
-                      b = this.buffer[offset++];
+                      b = this.buffer[loffset++];
                       part2 |= (b & 0x7F) << 7;
                       if ((b & 0x80) || (this.noAssert && b === void 0)) {
                         throw new RangeError("Buffer overrun");
@@ -1312,11 +1289,11 @@ export default class SmartBuffer {
       }
     }
     const value = Long.fromBits(part0 | (part1 << 28), (part1 >>> 4) | (part2) << 24, false);
-    if (relative) {
-      this.roffset = offset;
+    if (offset === void 0) {
+      this.roffset = loffset;
       return value;
     }
-    return { value, length: offset - start };
+    return { value, length: loffset - start };
   }
 
   /**
@@ -1326,7 +1303,7 @@ export default class SmartBuffer {
      * @returns {number | { value: ateos.math.Long, c: number }} The value read if offset is omitted,
      *      else the value read and the actual number of bytes read
      */
-  readVarint64ZigZag(offset): LongValue {
+  readVarint64ZigZag(offset?: number): LongValue {
     let val = this.readVarint64(offset);
     if (typeof val === "object" && (val as SLong).value instanceof Long) {
       (val as SLong).value = SmartBuffer.zigZagDecode64((val as SLong).value);
@@ -1344,11 +1321,10 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeCString(str, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeCString(str: any, offset?: number) {
+    let loffset = offset === void 0
+      ? this.woffset
+      : offset;
     let i;
     let k = str.length;
     if (!this.noAssert) {
@@ -1360,26 +1336,26 @@ export default class SmartBuffer {
           throw new TypeError("Illegal str: Contains NULL-characters");
         }
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     // UTF8 strings do not contain zero bytes in between except for the zero character, so:
     k = Buffer.byteLength(str, "utf8");
-    offset += k + 1;
+    loffset += k + 1;
     let capacity12 = this.buffer.length;
-    if (offset > capacity12) {
-      this.resize((capacity12 *= 2) > offset ? capacity12 : offset);
+    if (loffset > capacity12) {
+      this.resize((capacity12 *= 2) > loffset ? capacity12 : loffset);
     }
-    offset -= k + 1;
-    offset += this.buffer.write(str, offset, k, "utf8");
-    this.buffer[offset++] = 0;
-    if (relative) {
-      this.woffset = offset;
+    loffset -= k + 1;
+    loffset += this.buffer.write(str, loffset, k, "utf8");
+    this.buffer[loffset++] = 0;
+    if (offset === void 0) {
+      this.woffset = loffset;
       return this;
     }
     return k;
@@ -1393,35 +1369,34 @@ export default class SmartBuffer {
      * @returns {string | { string: string, length: number }} The string read if offset is omitted,
      *      else the string read and the actual number of bytes read
      */
-  readCString(offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  readCString(offset?: number) {
+    let loffset = offset === void 0
+      ? this.roffset
+      : offset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
         throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 1 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (1) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 1 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (1) <= ${this.buffer.length}`);
       }
     }
-    const start = offset;
+    const start = loffset;
     let temp;
     // UTF8 strings do not contain zero bytes in between except for the zero character itself, so:
     do {
-      if (offset >= this.buffer.length) {
-        throw new RangeError(`Index out of range: ${offset} <= ${this.buffer.length}`);
+      if (loffset >= this.buffer.length) {
+        throw new RangeError(`Index out of range: ${loffset} <= ${this.buffer.length}`);
       }
-      temp = this.buffer[offset++];
+      temp = this.buffer[loffset++];
     } while (temp !== 0);
-    const str = this.buffer.toString("utf8", start, offset - 1);
-    if (relative) {
-      this.roffset = offset;
+    const str = this.buffer.toString("utf8", start, loffset - 1);
+    if (offset === void 0) {
+      this.roffset = loffset;
       return str;
     }
-    return { string: str, length: offset - start };
+    return { string: str, length: loffset - start };
   }
 
   /**
@@ -1431,31 +1406,30 @@ export default class SmartBuffer {
      * @param {offset} offset Offset to write to
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeString(str, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeString(str: string, offset?: number) {
+    let loffset = offset === void 0
+      ? this.woffset
+      : offset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     const k = Buffer.byteLength(str, "utf8");
-    offset += k;
+    loffset += k;
     let capacity14 = this.buffer.length;
-    if (offset > capacity14) {
+    if (loffset > capacity14) {
       capacity14 *= 2;
-      this.resize(capacity14 > offset ? capacity14 : offset);
+      this.resize(capacity14 > loffset ? capacity14 : loffset);
     }
-    offset -= k;
-    offset += this.buffer.write(str, offset, k, "utf8");
-    if (relative) {
-      this.woffset = offset;
+    loffset -= k;
+    loffset += this.buffer.write(str, loffset, k, "utf8");
+    if (offset === void 0) {
+      this.woffset = loffset;
       return this;
     }
     return k;
@@ -1470,15 +1444,14 @@ export default class SmartBuffer {
      * @returns {string | { string: string, length: number}} The string read if offset is omitted,
      *      else the string read and the actual number of bytes read
      */
-  readString(length, metrics, offset) {
+  readString(length: number, metrics: any, offset?: number) {
     if (typeof metrics === "number") {
       offset = metrics;
       metrics = undefined;
     }
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+    let loffset = offset === void 0
+      ? this.roffset
+      : offset;
     if (metrics === void 0) {
       metrics = SmartBuffer.METRICS_CHARS;
     }
@@ -1487,44 +1460,44 @@ export default class SmartBuffer {
         throw new TypeError(`Illegal length: ${length} (not an integer)`);
       }
       length |= 0;
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     let i = 0;
-    const start = offset;
+    const start = loffset;
     let temp;
-    let sd;
+    let sd: Function;
     if (metrics === SmartBuffer.METRICS_CHARS) {
       sd = stringDestination();
-      utfx.decodeUTF8(() => i < length && offset < this.buffer.length ? this.buffer[offset++] : null, (cp) => {
+      utfx.decodeUTF8(() => i < length && loffset < this.buffer.length ? this.buffer[loffset++] : null, (cp: any) => {
         ++i;
         utfx.UTF8toUTF16(cp, sd);
       });
       if (i !== length) {
         throw new RangeError(`Illegal range: Truncated data, ${i} == ${length}`);
       }
-      if (relative) {
-        this.roffset = offset;
+      if (offset === void 0) {
+        this.roffset = loffset;
         return sd();
       }
-      return { string: sd(), length: offset - start };
+      return { string: sd(), length: loffset - start };
     } else if (metrics === SmartBuffer.METRICS_BYTES) {
       if (!this.noAssert) {
-        if (typeof offset !== "number" || offset % 1 !== 0) {
-          throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+        if (typeof loffset !== "number" || loffset % 1 !== 0) {
+          throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
         }
-        offset >>>= 0;
-        if (offset < 0 || offset + length > this.buffer.length) {
-          throw new RangeError(`Illegal offset: 0 <= ${offset} (${length}) <= ${this.buffer.length}`);
+        loffset >>>= 0;
+        if (loffset < 0 || loffset + length > this.buffer.length) {
+          throw new RangeError(`Illegal offset: 0 <= ${loffset} (${length}) <= ${this.buffer.length}`);
         }
       }
-      temp = this.buffer.toString("utf8", offset, offset + length);
-      if (relative) {
+      temp = this.buffer.toString("utf8", loffset, loffset + length);
+      if (offset === void 0) {
         this.roffset += length;
         return temp;
       }
@@ -1541,39 +1514,36 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to read from
      * @returns {this | number} this if offset is omitted, else the actual number of bytes written
      */
-  writeVString(str, offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.woffset;
-    }
+  writeVString(str: string, offset?: number) {
+    let loffset = offset ?? this.woffset;
     if (!this.noAssert) {
       if (!_isString(str)) {
         throw new TypeError("Illegal str: Not a string");
       }
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
-    const start = offset;
+    const start = loffset;
     const k = Buffer.byteLength(str, "utf8");
     const l = SmartBuffer.calculateVarint32(k);
-    offset += l + k;
+    loffset += l + k;
     let capacity15 = this.buffer.length;
-    if (offset > capacity15) {
-      this.resize((capacity15 *= 2) > offset ? capacity15 : offset);
+    if (loffset > capacity15) {
+      this.resize((capacity15 *= 2) > loffset ? capacity15 : loffset);
     }
-    offset -= l + k;
-    offset += this.writeVarint32(k, offset);
-    offset += this.buffer.write(str, offset, k, "utf8");
-    if (relative) {
-      this.woffset = offset;
+    loffset -= l + k;
+    loffset += this.writeVarint32(k, loffset) as number;
+    loffset += this.buffer.write(str, loffset, k, "utf8");
+    if (offset === void 0) {
+      this.woffset = loffset;
       return this;
     }
-    return offset - start;
+    return loffset - start;
   }
 
   /**
@@ -1583,29 +1553,26 @@ export default class SmartBuffer {
      * @returns {string | { string: string, length: number }} The string read if offset is omitted,
      *      else the string read and the actual number of bytes read
      */
-  readVString(offset) {
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  readVString(offset?: number) {
+    let loffset = offset ?? this.roffset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 1 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (1) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 1 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (1) <= ${this.buffer.length}`);
       }
     }
-    const start = offset;
-    const len = this.readVarint32(offset);
-    const str = this.readString((len as SNumber).value, SmartBuffer.METRICS_BYTES, offset += (len as SNumber).length);
-    offset += str.length;
-    if (relative) {
-      this.roffset = offset;
+    const start = loffset;
+    const len = this.readVarint32(loffset);
+    const str = this.readString((len as SNumber).value, SmartBuffer.METRICS_BYTES, loffset += (len as SNumber).length);
+    loffset += str.length;
+    if (offset === void 0) {
+      this.roffset = loffset;
       return str.string;
     }
-    return { string: str.string, length: offset - start };
+    return { string: str.string, length: loffset - start };
   }
 
   /**
@@ -1616,7 +1583,7 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to append to
      * @returns {this}
      */
-  appendTo(target, offset) {
+  appendTo(target: SmartBuffer, offset?: number) {
     target.write(this, offset);
     return this;
   }
@@ -1627,7 +1594,7 @@ export default class SmartBuffer {
      *
      * @param {boolean} assert
      */
-  assert(assert) {
+  assert(assert: boolean) {
     this.noAssert = !assert;
     return this;
   }
@@ -1651,7 +1618,7 @@ export default class SmartBuffer {
      * @param {boolean} copy Whether to copy the backing buffer or to return another view on the same, false by default
      * @param {SmartBuffer}
      */
-  clone(copy?: boolean) {
+  clone(copy: boolean = false) {
     const bb = new SmartBuffer(0, this.noAssert);
     if (copy) {
       const buffer = Buffer.allocUnsafe(this.buffer.length);
@@ -1673,26 +1640,26 @@ export default class SmartBuffer {
      * @param {number} end Offset to end at, buffer limit by default
      * @returns {this}
      */
-  compact(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.buffer.length : end;
+  compact(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.buffer.length : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    if (begin === 0 && end === this.buffer.length) {
+    if (lbegin === 0 && lend === this.buffer.length) {
       return this; // Already compacted
     }
-    const len = end - begin;
+    const len = lend - lbegin;
     if (len === 0) {
       this.buffer = EMPTY_BUFFER;
       this.roffset = 0;
@@ -1700,7 +1667,7 @@ export default class SmartBuffer {
       return this;
     }
     const buffer = Buffer.allocUnsafe(len);
-    this.buffer.copy(buffer, 0, begin, end);
+    this.buffer.copy(buffer, 0, lbegin, lend);
     this.buffer = buffer;
     this.woffset -= this.roffset;
     this.roffset = 0;
@@ -1714,30 +1681,30 @@ export default class SmartBuffer {
      * @param {number} end End offset, buffer limit by default
      * @returns {SmartBuffer}
      */
-  copy(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
+  copy(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    if (begin === end) {
+    if (lbegin === lend) {
       return new SmartBuffer(0, this.noAssert);
     }
-    const capacity = end - begin;
+    const capacity = lend - lbegin;
     const bb = new SmartBuffer(capacity, this.noAssert);
     bb.roffset = 0;
     bb.woffset = 0;
-    this.copyTo(bb, 0, begin, end);
+    this.copyTo(bb, 0, lbegin, lend);
     return bb;
   }
 
@@ -1750,38 +1717,36 @@ export default class SmartBuffer {
      * @param {number} [sourceEnd] Offset to end copying from, defaults to the buffer limit
      * @returns {this}
      */
-  copyTo(target, targetOffset, sourceStart, sourceEnd) {
-    let relative;
-    let targetRelative;
+  copyTo(target: SmartBuffer, targetOffset?: number, sourceStart?: number, sourceEnd?: number) {
     if (!this.noAssert) {
       if (!(target instanceof SmartBuffer)) {
         throw new TypeError("'target' is not a SmartBuffer");
       }
     }
-    targetOffset = (targetRelative = targetOffset === void 0) ? target.woffset : targetOffset | 0;
-    sourceStart = (relative = sourceStart === void 0) ? this.roffset : sourceStart | 0;
-    sourceEnd = sourceEnd === void 0 ? this.woffset : sourceEnd | 0;
+    const ltargetOffset = (targetOffset === void 0) ? target.woffset : targetOffset | 0;
+    const lsourceStart = (sourceStart === void 0) ? this.roffset : sourceStart | 0;
+    const lsourceEnd = sourceEnd === void 0 ? this.woffset : sourceEnd | 0;
 
-    if (targetOffset < 0 || targetOffset > target.buffer.length) {
-      throw new RangeError(`Illegal target range: 0 <= ${targetOffset} <= ${target.buffer.length}`);
+    if (ltargetOffset < 0 || ltargetOffset > target.buffer.length) {
+      throw new RangeError(`Illegal target range: 0 <= ${ltargetOffset} <= ${target.buffer.length}`);
     }
-    if (sourceStart < 0 || sourceEnd > this.buffer.length) {
-      throw new RangeError(`Illegal source range: 0 <= ${sourceStart} <= ${this.buffer.length}`);
+    if (lsourceStart < 0 || lsourceEnd > this.buffer.length) {
+      throw new RangeError(`Illegal source range: 0 <= ${lsourceStart} <= ${this.buffer.length}`);
     }
 
-    const len = sourceEnd - sourceStart;
+    const len = lsourceEnd - lsourceStart;
     if (len === 0) {
       return target; // Nothing to copy
     }
 
-    target.ensureCapacity(targetOffset + len);
+    target.ensureCapacity(ltargetOffset + len);
 
-    this.buffer.copy(target.buffer, targetOffset, sourceStart, sourceEnd);
+    this.buffer.copy(target.buffer, ltargetOffset, lsourceStart, lsourceEnd);
 
-    if (relative) {
+    if (sourceStart === void 0) {
       this.roffset += len;
     }
-    if (targetRelative) {
+    if (targetOffset === void 0) {
       target.woffset += len;
     }
 
@@ -1796,7 +1761,7 @@ export default class SmartBuffer {
      * @param {number} capacity
      * @returns {this}
      */
-  ensureCapacity(capacity) {
+  ensureCapacity(capacity: number) {
     let current = this.buffer.length;
     if (current < capacity) {
       return this.resize((current *= 2) > capacity ? current : capacity);
@@ -1812,40 +1777,40 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, defaults to limit.
      * @returns {this}
      */
-  fill(value, begin, end) {
-    const relative = begin === void 0;
-    if (relative) {
-      begin = this.woffset;
-    }
+  fill(value: any, begin?: number, end?: number) {
+    let lbegin = begin === void 0
+      ? this.woffset
+      : begin;
     if (_isString(value) && value.length > 0) {
       value = value.charCodeAt(0);
     }
-    if (end === void 0) {
-      end = this.buffer.length; // ??? may be woffset
-    }
+    let lend = end === void 0
+      ? this.buffer.length // ??? may be woffset
+      : end;
+
     if (!this.noAssert) {
       if (typeof value !== "number" || value % 1 !== 0) {
         throw new TypeError(`Illegal value: ${value} (not an integer)`);
       }
       value |= 0;
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    if (begin >= end) {
+    if (lbegin >= lend) {
       return this; // Nothing to fill
     }
-    this.buffer.fill(value, begin, end);
-    if (relative) {
-      this.woffset = end;
+    this.buffer.fill(value, lbegin, lend);
+    if (begin === void 0) {
+      this.woffset = lend;
     }
     return this;
   }
@@ -1861,22 +1826,17 @@ export default class SmartBuffer {
      * @param {number} [offset] Offset to prepend at. Will use and decrease offset by the number of bytes prepended if omitted.
      * @returns {this}
      */
-  prepend(source, encoding, offset) {
-    if (typeof encoding === "number" || !_isString(encoding)) {
-      offset = encoding;
-      encoding = undefined;
-    }
-    const relative = offset === void 0;
-    if (relative) {
-      offset = this.roffset;
-    }
+  prepend(source: any, offset?: number, encoding?: any) {
+    let loffset = offset === void 0
+      ? this.roffset
+      : offset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
-        throw new TypeError(`Illegal offset: ${offset} (not an integer)`);
+      if (typeof loffset !== "number" || loffset % 1 !== 0) {
+        throw new TypeError(`Illegal offset: ${loffset} (not an integer)`);
       }
-      offset >>>= 0;
-      if (offset < 0 || offset + 0 > this.buffer.length) {
-        throw new RangeError(`Illegal offset: 0 <= ${offset} (0) <= ${this.buffer.length}`);
+      loffset >>>= 0;
+      if (loffset < 0 || loffset + 0 > this.buffer.length) {
+        throw new RangeError(`Illegal offset: 0 <= ${loffset} (0) <= ${this.buffer.length}`);
       }
     }
     if (!(source instanceof SmartBuffer)) {
@@ -1886,19 +1846,19 @@ export default class SmartBuffer {
     if (len <= 0) {
       return this; // Nothing to prepend
     }
-    const diff = len - offset;
+    const diff = len - loffset;
     if (diff > 0) { // Not enough space before offset, so resize + move
       const buffer = Buffer.allocUnsafe(this.buffer.length + diff);
-      this.buffer.copy(buffer, len, offset, this.buffer.length);
+      this.buffer.copy(buffer, len, loffset, this.buffer.length);
       this.buffer = buffer;
       this.roffset += diff;
       this.woffset += diff;
-      offset += diff;
+      loffset += diff;
     }
-    source.buffer.copy(this.buffer, offset - len, source.roffset, source.buffer.length);
+    source.buffer.copy(this.buffer, loffset - len, source.roffset, source.buffer.length);
 
     source.roffset = source.buffer.length;
-    if (relative) {
+    if (offset === void 0) {
       this.roffset -= len;
     }
     return this;
@@ -1913,7 +1873,7 @@ export default class SmartBuffer {
      * @param {Wrappable} target
      * @param {number} offset Offset to prepend at
      */
-  prependTo(target, offset) {
+  prependTo(target: any, offset?: number) {
     target.prepend(this, offset);
     return this;
   }
@@ -1925,7 +1885,7 @@ export default class SmartBuffer {
      * @param {number} capacity	Capacity required
      * @returns {this}
      */
-  resize(capacity) {
+  resize(capacity: number) {
     if (!this.noAssert) {
       if (typeof capacity !== "number" || capacity % 1 !== 0) {
         throw new TypeError(`'capacity' is not an integer: ${capacity}`);
@@ -1950,26 +1910,26 @@ export default class SmartBuffer {
      * @param {number} [end] Offset to end at, defaults to woffset
      * @returns {this}
      */
-  reverse(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
+  reverse(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    if (begin === end) {
+    if (lbegin === lend) {
       return this; // Nothing to reverse
     }
-    Array.prototype.reverse.call(this.buffer.slice(begin, end));
+    Array.prototype.reverse.call(this.buffer.slice(lbegin, lend));
     return this;
   }
 
@@ -1979,7 +1939,7 @@ export default class SmartBuffer {
      * @param {number} length
      * @returns {this}
      */
-  skipRead(length) {
+  skipRead(length: number) {
     if (!this.noAssert) {
       if (typeof length !== "number" || length % 1 !== 0) {
         throw new TypeError(`Illegal length: ${length} (not an integer)`);
@@ -2002,7 +1962,7 @@ export default class SmartBuffer {
      * @param {number} length
      * @returns {this}
      */
-  skipWrite(length) {
+  skipWrite(length: number) {
     if (!this.noAssert) {
       if (typeof length !== "number" || length % 1 !== 0) {
         throw new TypeError(`Illegal length: ${length} (not an integer)`);
@@ -2026,24 +1986,24 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, defaults to limit
      * @returns {SmartBuffer}
      */
-  slice(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
+  slice(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof end !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    const bb = new SmartBuffer(end - begin);
-    bb.buffer = this.buffer.slice(begin, end);
+    const bb = new SmartBuffer(lend - lbegin);
+    bb.buffer = this.buffer.slice(begin, lend);
     bb.woffset = bb.capacity;
     return bb;
   }
@@ -2057,31 +2017,31 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, woffset by default
      * @returns {Buffer}
      */
-  toBuffer(forceCopy, begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
-    begin >>>= 0;
-    end >>>= 0;
+  toBuffer(forceCopy: boolean = false, begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
+    lbegin >>>= 0;
+    lend >>>= 0;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      if (typeof end !== "number" || end % 1 !== 0) {
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
     if (forceCopy) {
-      const buffer = Buffer.allocUnsafe(end - begin);
-      this.buffer.copy(buffer, 0, begin, end);
+      const buffer = Buffer.allocUnsafe(lend - lbegin);
+      this.buffer.copy(buffer, 0, lbegin, end);
       return buffer;
     }
-    if (begin === 0 && end === this.buffer.length) {
+    if (lbegin === 0 && lend === this.buffer.length) {
       return this.buffer;
     }
-    return this.buffer.slice(begin, end);
+    return this.buffer.slice(lbegin, lend);
   }
 
   /**
@@ -2093,7 +2053,7 @@ export default class SmartBuffer {
     let offset = this.roffset;
     let limit = this.woffset;
     if (!this.noAssert) {
-      if (typeof offset !== "number" || offset % 1 !== 0) {
+      if (offset === void 0 || offset % 1 !== 0) {
         throw new TypeError("Illegal offset: Not an integer");
       }
       offset >>>= 0;
@@ -2119,7 +2079,7 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, limit by default
      * @returns {string}
      */
-  toString(encoding, begin, end) {
+  toString(encoding?: string, begin?: number, end?: number) {
     if (encoding === void 0) {
       return `ByteArrayNB(roffset=${this.roffset},woffset=${this.woffset},capacity=${this.capacity})`;
     }
@@ -2147,14 +2107,15 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, limit by default
      * @returns {string}
      */
-  toBase64(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
-    begin = begin | 0; end = end | 0;
-    if (begin < 0 || end > this.buffer.length || begin > end) {
+  toBase64(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
+    lbegin |= 0;
+    lend |= 0;
+    if (lbegin < 0 || lend > this.buffer.length || lbegin > lend) {
       throw new RangeError("begin, end");
     }
-    return this.buffer.toString("base64", begin, end);
+    return this.buffer.toString("base64", lbegin, lend);
   }
 
   /**
@@ -2164,14 +2125,15 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, limit by default
      * @returns {string}
      */
-  toBinary(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
-    begin |= 0; end |= 0;
-    if (begin < 0 || end > this.capacity || begin > end) {
+  toBinary(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
+    lbegin |= 0;
+    lend |= 0;
+    if (lbegin < 0 || lend > this.capacity || lbegin > lend) {
       throw new RangeError("begin, end");
     }
-    return this.buffer.toString("binary", begin, end);
+    return this.buffer.toString("binary", lbegin, lend);
   }
 
   /**
@@ -2187,7 +2149,7 @@ export default class SmartBuffer {
      * @param {boolean} [columns] If true returns two columns hex + ascii, defaults to false
      * @returns {string}
      */
-  toDebug(columns?: boolean) {
+  toDebug(columns: boolean = false) {
     let i = -1;
     const k = this.buffer.length;
     let b;
@@ -2250,23 +2212,23 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, limit by default
      * @returns {string}
      */
-  toHex(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
+  toHex(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    return this.buffer.toString("hex", begin, end);
+    return this.buffer.toString("hex", lbegin, lend);
   }
 
   /**
@@ -2276,23 +2238,23 @@ export default class SmartBuffer {
      * @param {number} [end] End offset, limit by default
      * @returns {string}
      */
-  toUTF8(begin, end) {
-    begin = begin === void 0 ? this.roffset : begin;
-    end = end === void 0 ? this.woffset : end;
+  toUTF8(begin?: number, end?: number) {
+    let lbegin = begin === void 0 ? this.roffset : begin;
+    let lend = end === void 0 ? this.woffset : end;
     if (!this.noAssert) {
-      if (typeof begin !== "number" || begin % 1 !== 0) {
+      if (typeof lbegin !== "number" || lbegin % 1 !== 0) {
         throw new TypeError("Illegal begin: Not an integer");
       }
-      begin >>>= 0;
-      if (typeof end !== "number" || end % 1 !== 0) {
+      lbegin >>>= 0;
+      if (typeof lend !== "number" || lend % 1 !== 0) {
         throw new TypeError("Illegal end: Not an integer");
       }
-      end >>>= 0;
-      if (begin < 0 || begin > end || end > this.buffer.length) {
-        throw new RangeError(`Illegal range: 0 <= ${begin} <= ${end} <= ${this.buffer.length}`);
+      lend >>>= 0;
+      if (lbegin < 0 || lbegin > lend || lend > this.buffer.length) {
+        throw new RangeError(`Illegal range: 0 <= ${lbegin} <= ${lend} <= ${this.buffer.length}`);
       }
     }
-    return this.buffer.toString("utf8", begin, end);
+    return this.buffer.toString("utf8", lbegin, lend);
   }
 
   /**
@@ -2301,7 +2263,7 @@ export default class SmartBuffer {
      * @param {number} [capacity] Initial capacity. Defaults to SmartBuffer.DEFAULT_CAPACITY(64)
      * @param {boolean} [noAssert] Whether to skip assertions of offsets and values. Defaults to SmartBuffer.DEFAULT_NOASSERT(false)
      */
-  static alloc(capacity, noAssert) {
+  static alloc(capacity?: number, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
     return new SmartBuffer(capacity, noAssert);
   }
 
@@ -2312,11 +2274,7 @@ export default class SmartBuffer {
      * @param {string} encoding Encoding for strings
      * @param {boolean} noAssert Whether to skip assertions of offsets and values. Defaults to SmartBuffer.DEFAULT_NOASSERT(false)
      */
-  static concat(buffers, encoding, noAssert) {
-    if (typeof encoding === "boolean" || !_isString(encoding)) {
-      noAssert = encoding;
-      encoding = undefined;
-    }
+  static concat(buffers: any[], encoding?: any, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
     let capacity = 0;
     const k = buffers.length;
     let i = 0;
@@ -2358,7 +2316,7 @@ export default class SmartBuffer {
      * @param {string} encoding Encoding for strings
      * @param {boolean} noAssert Whether to skip assertions of offsets and values. Defaults to SmartBuffer.DEFAULT_NOASSERT(false)
      */
-  static wrap(buffer: any, encoding?: string, noAssert?: boolean) {
+  static wrap(buffer: any, encoding?: string, noAssert?: boolean): SmartBuffer {
     if (_isString(buffer)) {
       if (encoding === void 0) {
         encoding = "utf8";
@@ -2413,7 +2371,7 @@ export default class SmartBuffer {
      * @param {number} value
      * @returns {number}
      */
-  static calculateVarint32(value) {
+  static calculateVarint32(value: number): number {
     value = value >>> 0;
     if (value < 1 << 7) {
       return 1;
@@ -2433,7 +2391,7 @@ export default class SmartBuffer {
      * @param {number} n
      * @returns {number}
      */
-  static zigZagEncode32(n) {
+  static zigZagEncode32(n: number) {
     return (((n |= 0) << 1) ^ (n >> 31)) >>> 0; // ref: src/google/protobuf/wire_format_lite.h
   }
 
@@ -2443,7 +2401,7 @@ export default class SmartBuffer {
      * @param {number}
      * @returns {number}
      */
-  static zigZagDecode32(n) {
+  static zigZagDecode32(n: number) {
     return ((n >>> 1) ^ -(n & 1)) | 0; // // ref: src/google/protobuf/wire_format_lite.h
   }
 
@@ -2453,16 +2411,19 @@ export default class SmartBuffer {
      * @param {ateos.math.Long | number | string} value
      * @returns {number}
      */
-  static calculateVarint64(value) {
+  static calculateVarint64(value: string | number | Long) {
+    let lValue: Long;
     if (typeof value === "number") {
-      value = Long.fromNumber(value);
+      lValue = Long.fromNumber(value);
     } else if (_isString(value)) {
-      value = Long.fromString(value);
+      lValue = Long.fromString(value as string);
+    } else {
+      lValue = value as Long;
     }
     // ref: src/google/protobuf/io/coded_stream.cc
-    const part0 = value.toInt() >>> 0;
-    const part1 = value.shru(28).toInt() >>> 0;
-    const part2 = value.shru(56).toInt() >>> 0;
+    const part0 = lValue.toInt() >>> 0;
+    const part1 = lValue.shru(28).toInt() >>> 0;
+    const part2 = lValue.shru(56).toInt() >>> 0;
     if (part2 === 0) {
       if (part1 === 0) {
         if (part0 < 1 << 14) {
@@ -2486,16 +2447,19 @@ export default class SmartBuffer {
      * @param {ateos.math.Long | number | string} value
      * @returns {ateos.math.Long}
      */
-  static zigZagEncode64(value) {
+  static zigZagEncode64(value: string | number | LongValue) {
+    let lValue: Long;
     if (typeof value === "number") {
-      value = Long.fromNumber(value, false);
+      lValue = Long.fromNumber(value as number, false);
     } else if (_isString(value)) {
-      value = Long.fromString(value, false);
-    } else if (value.unsigned !== false) {
-      value = value.toSigned();
+      lValue = Long.fromString(value as string, false);
+    } else if ((value as Long).unsigned !== false) {
+      lValue = (value as Long).toSigned();
+    } else {
+      lValue = value as Long;
     }
     // ref: src/google/protobuf/wire_format_lite.h
-    return value.shl(1).xor(value.shr(63)).toUnsigned();
+    return lValue.shl(1).xor(lValue.shr(63)).toUnsigned();
   }
 
   /**
@@ -2504,16 +2468,19 @@ export default class SmartBuffer {
      * @param {ateos.math.Long | number | string} value
      * @returns {ateos.math.Long}
      */
-  static zigZagDecode64(value) {
+  static zigZagDecode64(value: string | number | LongValue) {
+    let lValue: Long;
     if (typeof value === "number") {
-      value = Long.fromNumber(value, false);
+      lValue = Long.fromNumber(value as number, false);
     } else if (_isString(value)) {
-      value = Long.fromString(value, false);
-    } else if (value.unsigned !== false) {
-      value = value.toSigned();
+      lValue = Long.fromString(value as string, false);
+    } else if ((value as Long).unsigned !== false) {
+      lValue = (value as Long).toSigned();
+    } else {
+      lValue = value as Long;
     }
     // ref: src/google/protobuf/wire_format_lite.h
-    return value.shru(1).xor(value.and(Long.ONE).toSigned().negate()).toSigned();
+    return lValue.shru(1).xor(lValue.and(Long.ONE).toSigned().negate()).toSigned();
   }
 
   /**
@@ -2524,7 +2491,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @returns {number}
      */
-  static calculateUTF8Chars(str) {
+  static calculateUTF8Chars(str: string) {
     return utfx.calculateUTF16asUTF8(stringSource(str))[0];
   }
 
@@ -2534,7 +2501,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @returns {number}
      */
-  static calculateString(str) {
+  static calculateString(str: string) {
     if (!_isString(str)) {
       throw new TypeError(`Illegal argument: ${typeof str}`);
     }
@@ -2547,7 +2514,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @returns {SmartBuffer}
      */
-  static fromBase64(str) {
+  static fromBase64(str: string) {
     return SmartBuffer.wrap(Buffer.from(str, "base64"));
   }
 
@@ -2557,7 +2524,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @returns {SmartBuffer}
      */
-  static btoa(str) {
+  static btoa(str: string) {
     return SmartBuffer.fromBinary(str).toBase64();
   }
 
@@ -2567,7 +2534,7 @@ export default class SmartBuffer {
      * @param {string} b64
      * @returns {SmartBuffer}
      */
-  static atob(b64) {
+  static atob(b64: string) {
     return SmartBuffer.fromBase64(b64).toBinary();
   }
 
@@ -2577,7 +2544,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @returns {SmartBuffer}
      */
-  static fromBinary(str) {
+  static fromBinary(str: string) {
     return SmartBuffer.wrap(Buffer.from(str, "binary"));
   }
 
@@ -2588,7 +2555,7 @@ export default class SmartBuffer {
      * @param {boolean} [noAssert]
      * @returns {SmartBuffer}
      */
-  static fromDebug(str, noAssert?: boolean) {
+  static fromDebug(str: string, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
     const k = str.length;
     const bb = new SmartBuffer(((k + 1) / 3) | 0, noAssert);
     let i = 0;
@@ -2707,7 +2674,7 @@ export default class SmartBuffer {
      * @param {string} str
      * @param {boolean} [noAssert]
      */
-  static fromHex(str, noAssert?: boolean) {
+  static fromHex(str: string, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
     if (!noAssert) {
       if (!_isString(str)) {
         throw new TypeError("Illegal str: Not a string");
@@ -2729,7 +2696,7 @@ export default class SmartBuffer {
      * @param {boolean} [noAssert]
      * @returns {SmartBuffer}
      */
-  static fromUTF8(str, noAssert?: boolean) {
+  static fromUTF8(str: string, noAssert: boolean = SmartBuffer.DEFAULT_NOASSERT) {
     if (!noAssert) {
       if (!_isString(str)) {
         throw new TypeError("Illegal str: Not a string");
