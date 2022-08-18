@@ -753,7 +753,6 @@ export class SmartBuffer {
   writeInt32BE(value: number, offset?: number) {
     const iValue = value | 0;
     const loffset = this._checkWrite(iValue, 4, offset);
-    console.log(loffset);
     this.buffer[loffset] = iValue >>> 24;
     this.buffer[loffset + 1] = iValue >>> 16;
     this.buffer[loffset + 2] = iValue >>> 8;
