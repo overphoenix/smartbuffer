@@ -1,4 +1,4 @@
-import { isClass } from "@recalibratedsystems/common";
+import { isClass } from "@recalibratedsystems/common-cjs";
 import Long from "long";
 import { isSmartBuffer, SmartBuffer } from "../lib";
 
